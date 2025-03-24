@@ -14,6 +14,56 @@
         .neon-border {
             box-shadow: 0 0 15px rgba(96, 165, 250, 0.3);
         }
+        .hidden {
+            display: none;
+        }
+        .terminal-effect {
+            font-family: monospace;
+            overflow-y: auto;
+            max-height: 300px;
+        }
+        .terminal-effect::-webkit-scrollbar {
+            width: 8px;
+        }
+        .terminal-effect::-webkit-scrollbar-track {
+            background: rgba(23, 25, 35, 0.2);
+            border-radius: 4px;
+        }
+        .terminal-effect::-webkit-scrollbar-thumb {
+            background: rgba(96, 165, 250, 0.3);
+            border-radius: 4px;
+        }
+        /* 添加loading动画样式 */
+        .loading-spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(96, 165, 250, 0.3);
+            border-radius: 50%;
+            border-top-color: rgba(96, 165, 250, 0.8);
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .btn-loading {
+            position: relative;
+            color: transparent !important;
+        }
+        .btn-loading::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 1.5em;
+            height: 1.5em;
+            margin-left: -0.75em;
+            margin-top: -0.75em;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 min-h-screen">
@@ -33,84 +83,677 @@
             <section class="glass-morphism rounded-2xl p-6 neon-border">
                 <h2 class="text-xl font-semibold text-blue-400 mb-4">原始指令输入</h2>
                 <div class="space-y-4">
-                    <textarea 
-                        class="w-full h-32 bg-gray-800/40 rounded-lg p-4 text-blue-400 font-mono 
-                               focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-500"
-                        placeholder="输入或粘贴指令（示例：F3 00 08 11 11 01 00 00 00 01 08）"
-                    ></textarea>
-                    <button class="w-full py-3 bg-blue-600/40 hover:bg-blue-700/50 rounded-lg transition-colors">
-                        解析指令
-                    </button>
+                    <div class="relative">
+                        <textarea 
+                            id="command-input"
+                            class="w-full h-32 bg-gray-800/40 rounded-lg p-4 text-blue-400 font-mono 
+                                   focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-500"
+                            placeholder="输入或粘贴指令（示例：F3 00 08 11 11 01 00 00 00 01 08）"
+                        ></textarea>
+                        <button 
+                            id="clear-input" 
+                            class="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center bg-gray-700/50 hover:bg-gray-600/70 text-gray-400 hover:text-white transition-colors"
+                            title="清空输入框">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button id="parse-button" class="flex-1 py-3 bg-blue-600/40 hover:bg-blue-700/50 rounded-lg transition-colors">
+                            解析指令
+                        </button>
+                        <button id="example-button" class="px-4 py-3 bg-purple-600/40 hover:bg-purple-700/50 rounded-lg transition-colors">
+                            加载示例
+                        </button>
+                    </div>
                 </div>
             </section>
 
             <!-- 解析结果展示 -->
-            <section class="glass-morphism rounded-2xl p-6 neon-border">
+            <section id="result-section" class="glass-morphism rounded-2xl p-6 neon-border hidden">
                 <h2 class="text-xl font-semibold text-purple-400 mb-4">协议解析结果</h2>
                 <div class="space-y-6">
-                    <!-- 字段解析 -->
-                    <div class="bg-gray-800/20 rounded-xl p-4">
-                        <h3 class="text-sm text-gray-400 mb-3">字段解析</h3>
-                        <div class="grid grid-cols-2 gap-4 text-sm">
-                            <!-- 发送指令解析示例 -->
-                            <div class="text-gray-300">包头</div>
-                            <div class="font-mono text-blue-400">0xF3</div>
-                            
-                            <div class="text-gray-300">长度</div>
-                            <div class="font-mono">0x0008 <span class="text-gray-400 ml-2">(8 bytes)</span></div>
-                            
-                            <div class="text-gray-300">命令码</div>
-                            <div class="font-mono text-purple-400">0x1111 <span class="text-gray-400 ml-2">(开门操作)</span></div>
-                            
-                            <div class="text-gray-300">地址编码</div>
-                            <div class="font-mono">0x01 <span class="text-gray-400 ml-2">(1号柜)</span></div>
-                            
-                            <div class="text-gray-300">锁编号</div>
-                            <div class="font-mono text-green-400">0x01 <span class="text-gray-400 ml-2">(1号锁)</span></div>
-                            
-                            <div class="text-gray-300">校验码</div>
-                            <div class="font-mono">0x08 <span class="text-gray-400 ml-2">(LRC校验通过)</span></div>
-                        </div>
-                    </div>
-
-                    <!-- 状态结果 -->
-                    <div class="bg-green-900/20 rounded-xl p-4 border border-green-500/30">
+                    <!-- 整体状态 -->
+                    <div id="result-status" class="p-4 rounded-xl border">
                         <div class="flex items-center space-x-3">
-                            <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg id="success-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                             </svg>
+                            <svg id="error-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
                             <div>
-                                <h3 class="font-medium text-green-400">操作成功</h3>
-                                <p class="text-sm text-gray-400 mt-1">1号柜 1号锁已开启</p>
+                                <h3 id="status-title" class="font-medium"></h3>
+                                <p id="status-desc" class="text-sm text-gray-400 mt-1"></p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 返回指令解析示例 -->
+                    <!-- 指令摘要 -->
                     <div class="bg-gray-800/20 rounded-xl p-4">
-                        <h3 class="text-sm text-gray-400 mb-3">返回数据解析</h3>
+                        <h3 class="text-sm text-gray-400 mb-3">指令摘要</h3>
                         <div class="grid grid-cols-2 gap-4 text-sm">
-                            <div class="text-gray-300">状态码</div>
-                            <div class="font-mono">0x01 <span class="text-green-400 ml-2">(已开启)</span></div>
+                            <div class="text-gray-300">指令类型</div>
+                            <div id="command-type" class="font-mono text-blue-400"></div>
                             
-                            <div class="text-gray-300">数据长度</div>
-                            <div class="font-mono">0x0009 <span class="text-gray-400 ml-2">(9 bytes)</span></div>
+                            <div class="text-gray-300">命令码</div>
+                            <div id="command-code" class="font-mono"></div>
                             
-                            <div class="text-gray-300">校验结果</div>
-                            <div class="font-mono text-green-400">0x08 <span class="text-gray-400 ml-2">(LRC校验通过)</span></div>
+                            <div class="text-gray-300">命令名称</div>
+                            <div id="command-name" class="font-mono text-purple-400"></div>
                         </div>
                     </div>
+                    
+                    <!-- 字段解析 -->
+                    <div class="bg-gray-800/20 rounded-xl p-4">
+                        <h3 class="text-sm text-gray-400 mb-3">字段解析</h3>
+                        <div id="command-details" class="grid grid-cols-2 gap-4 text-sm">
+                            <!-- 动态生成的字段内容 -->
+                        </div>
+                    </div>
+
+                    <!-- 重量数据解析 (仅在解析重量指令时显示) -->
+                    <div id="weight-section" class="bg-gray-800/20 rounded-xl p-4 hidden">
+                        <h3 class="text-sm text-gray-400 mb-3">重量数据解析</h3>
+                        <div class="text-center my-4">
+                            <span id="weight-value" class="text-4xl font-mono text-green-400">0.000</span>
+                            <span class="text-xl text-gray-400">kg</span>
+                        </div>
+                        <div id="weight-details" class="grid grid-cols-2 gap-4 text-sm">
+                            <!-- 动态生成的重量详情 -->
+                        </div>
+                    </div>
+
+                    <!-- 传感器状态 (仅在解析重量指令时显示) -->
+                    <div id="sensor-status-section" class="bg-gray-800/20 rounded-xl p-4 hidden">
+                        <h3 class="text-sm text-gray-400 mb-3">传感器状态</h3>
+                        <div id="sensor-status" class="grid grid-cols-2 gap-4 text-sm">
+                            <!-- 动态生成的传感器状态 -->
+                        </div>
+                    </div>
+
+                    <!-- 原始数据 -->
+                    <div class="bg-gray-800/20 rounded-xl p-4">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-sm text-gray-400">原始数据</h3>
+                            <button id="toggle-raw" class="text-xs text-blue-400 hover:text-blue-300">显示/隐藏</button>
+                        </div>
+                        <div id="raw-data" class="terminal-effect font-mono text-xs text-gray-400 p-2 bg-black/30 rounded hidden"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 错误信息区 -->
+            <section id="error-section" class="glass-morphism rounded-2xl p-6 neon-border hidden">
+                <h2 class="text-xl font-semibold text-red-400 mb-4">解析错误</h2>
+                <div class="bg-red-900/20 rounded-xl p-4 border border-red-500/30">
+                    <div class="flex items-center space-x-3">
+                        <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                        <div>
+                            <h3 class="font-medium text-red-400">解析失败</h3>
+                            <p id="error-message" class="text-sm text-gray-400 mt-1"></p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 添加loading区域 -->
+            <section id="loading-section" class="glass-morphism rounded-2xl p-6 neon-border hidden">
+                <div class="flex flex-col items-center justify-center py-8">
+                    <div class="loading-spinner mb-4"></div>
+                    <h3 class="text-blue-400 font-medium">正在解析指令...</h3>
+                    <p class="text-gray-400 text-sm mt-2">计算校验码并分析数据结构</p>
                 </div>
             </section>
         </div>
     </main>
 
+    <!-- 历史记录模块 -->
+    <section class="container mx-auto p-4 mb-8">
+        <div class="glass-morphism rounded-2xl p-6 neon-border">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-blue-400">解析历史</h2>
+                <button id="clear-history" class="text-sm text-gray-400 hover:text-white transition-colors">
+                    清空历史
+                </button>
+            </div>
+            <div id="history-list" class="space-y-3">
+                <!-- 历史记录将在这里动态生成 -->
+            </div>
+        </div>
+    </section>
+
+    <!-- 引入协议解析库 -->
+    <script src="protocol-parser.js"></script>
     <script>
-        // 示例交互功能
-        document.querySelectorAll('input, textarea').forEach(el => {
-            el.addEventListener('focus', () => el.classList.add('ring-2', 'ring-blue-500/30'))
-            el.addEventListener('blur', () => el.classList.remove('ring-2', 'ring-blue-500/30'))
-        })
+        // 页面元素
+        const commandInput = document.getElementById('command-input');
+        const parseButton = document.getElementById('parse-button');
+        const exampleButton = document.getElementById('example-button');
+        const resultSection = document.getElementById('result-section');
+        const errorSection = document.getElementById('error-section');
+        const errorMessage = document.getElementById('error-message');
+        const resultStatus = document.getElementById('result-status');
+        const successIcon = document.getElementById('success-icon');
+        const errorIcon = document.getElementById('error-icon');
+        const statusTitle = document.getElementById('status-title');
+        const statusDesc = document.getElementById('status-desc');
+        const commandType = document.getElementById('command-type');
+        const commandCode = document.getElementById('command-code');
+        const commandName = document.getElementById('command-name');
+        const commandDetails = document.getElementById('command-details');
+        const weightSection = document.getElementById('weight-section');
+        const weightValue = document.getElementById('weight-value');
+        const weightDetails = document.getElementById('weight-details');
+        const sensorStatusSection = document.getElementById('sensor-status-section');
+        const sensorStatus = document.getElementById('sensor-status');
+        const rawData = document.getElementById('raw-data');
+        const toggleRaw = document.getElementById('toggle-raw');
+        const clearInput = document.getElementById('clear-input');
+        const loadingSection = document.getElementById('loading-section');  // 新增
+
+        // 示例指令集
+        const examples = {
+            doorOpen: "F3 00 08 11 11 01 00 00 00 01 08",
+            doorStatus: "F3 00 08 11 10 01 00 00 00 01 09",
+            doorOpenResponse: "F3 00 09 11 11 01 00 00 00 01 01 08",
+            weightRead: "01 05 02 05 0C",
+            weightResponse: "01 06 02 02 64 00 00 a7 36",
+            weightCalibration: "00 63 06 01 6A",
+            discriminationRateSet: "01 63 2E 05 96"
+        };
+
+        // 初始化事件监听
+        parseButton.addEventListener('click', parseCommand);
+        exampleButton.addEventListener('click', loadExample);
+        toggleRaw.addEventListener('click', toggleRawData);
+        clearInput.addEventListener('click', clearInputField);
+        document.getElementById('clear-history').addEventListener('click', clearHistory);
+
+        // 加载随机示例
+        function loadExample() {
+            const exampleKeys = Object.keys(examples);
+            const randomExample = exampleKeys[Math.floor(Math.random() * exampleKeys.length)];
+            commandInput.value = examples[randomExample];
+        }
+
+        // 初始化历史记录
+        let commandHistory = JSON.parse(localStorage.getItem('commandHistory') || '[]');
+        renderHistory();
+
+        // 添加历史记录
+        function addToHistory(command, result) {
+            const timestamp = new Date().toLocaleString('zh-CN');
+            const historyItem = {
+                command: command,
+                success: result.success,
+                timestamp: timestamp
+            };
+
+            if (result.success) {
+                historyItem.type = result.type;
+                historyItem.commandName = result.command.name;
+                historyItem.isResponse = result.isResponse;
+            } else {
+                historyItem.errorMessage = result.message;
+            }
+
+            // 检查是否存在相同的指令
+            const existingIndex = commandHistory.findIndex(item => item.command === command);
+            if (existingIndex !== -1) {
+                // 更新现有记录的时间戳
+                commandHistory[existingIndex].timestamp = timestamp;
+                // 更新解析结果
+                commandHistory[existingIndex].success = result.success;
+                if (result.success) {
+                    commandHistory[existingIndex].type = result.type;
+                    commandHistory[existingIndex].commandName = result.command.name;
+                    commandHistory[existingIndex].isResponse = result.isResponse;
+                } else {
+                    commandHistory[existingIndex].errorMessage = result.message;
+                }
+            } else {
+                // 添加新记录
+                commandHistory.unshift(historyItem);
+            }
+
+            // 限制历史记录数量为10条
+            if (commandHistory.length > 10) {
+                commandHistory = commandHistory.slice(0, 10);
+            }
+
+            // 保存到localStorage
+            localStorage.setItem('commandHistory', JSON.stringify(commandHistory));
+            renderHistory();
+        }
+
+        // 渲染历史记录
+        function renderHistory() {
+            const historyList = document.getElementById('history-list');
+            historyList.innerHTML = '';
+
+            commandHistory.forEach((item, index) => {
+                const historyItem = document.createElement('div');
+                historyItem.className = 'bg-gray-800/20 rounded-lg p-4 hover:bg-gray-800/40 transition-colors';
+                
+                let statusHtml = '';
+                if (item.success) {
+                    statusHtml = `
+                        <div class="text-sm">
+                            <span class="text-purple-400">${item.type}</span>
+                            <span class="text-gray-400 mx-2">|</span>
+                            <span class="text-green-400">${item.commandName}</span>
+                            <span class="text-gray-400 mx-2">|</span>
+                            <span class="text-yellow-400">${item.isResponse ? '返回数据' : '发送指令'}</span>
+                        </div>
+                    `;
+                } else {
+                    statusHtml = `
+                        <div class="text-sm">
+                            <span class="text-red-400">解析失败</span>
+                            <span class="text-gray-400 mx-2">|</span>
+                            <span class="text-red-400">${item.errorMessage}</span>
+                        </div>
+                    `;
+                }
+
+                historyItem.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="space-y-1 flex-1 mr-4">
+                            <div class="font-mono text-blue-400">${item.command}</div>
+                            ${statusHtml}
+                        </div>
+                        <div class="flex flex-col items-end space-y-2">
+                            <div class="text-sm text-gray-400">${item.timestamp}</div>
+                            <button class="reparse-btn bg-blue-600/40 hover:bg-blue-700/50 text-white px-3 py-1 rounded text-sm transition-colors">
+                                重新解析
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // 为重新解析按钮添加点击事件
+                const reparseBtn = historyItem.querySelector('.reparse-btn');
+                reparseBtn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // 防止触发父元素的点击事件
+                    commandInput.value = item.command;
+                    parseCommand();
+                });
+                
+                historyList.appendChild(historyItem);
+            });
+        }
+
+        // 清空历史记录
+        function clearHistory() {
+            commandHistory = [];
+            localStorage.setItem('commandHistory', JSON.stringify(commandHistory));
+            renderHistory();
+        }
+
+        // 解析指令
+        function parseCommand() {
+            const input = commandInput.value.trim();
+            if (!input) {
+                showError("请输入指令！");
+                return;
+            }
+
+            // 显示loading状态
+            showLoading();
+            
+            // 添加延迟，让loading效果更明显
+            setTimeout(() => {
+                try {
+                    const result = window.ProtocolParser.parse(input);
+                    if (result.success) {
+                        showResult(result);
+                    } else {
+                        showError(result.message);
+                    }
+                    // 无论成功失败都添加到历史记录
+                    addToHistory(input, result);
+                } catch (error) {
+                    const errorResult = {
+                        success: false,
+                        message: "解析过程中发生错误: " + error.message
+                    };
+                    showError(errorResult.message);
+                    addToHistory(input, errorResult);
+                } finally {
+                    // 隐藏loading状态
+                    hideLoading();
+                }
+            }, 500);
+        }
+
+        // 显示解析结果
+        function showResult(result) {
+            resultSection.classList.remove('hidden');
+            errorSection.classList.add('hidden');
+            
+            // 更新状态显示
+            if (result.isResponse) {
+                resultStatus.classList.add('bg-green-900/20', 'border-green-500/30');
+                resultStatus.classList.remove('bg-blue-900/20', 'border-blue-500/30');
+                successIcon.classList.add('text-green-400');
+                successIcon.classList.remove('text-blue-400');
+                statusTitle.classList.add('text-green-400');
+                statusTitle.classList.remove('text-blue-400');
+                statusTitle.textContent = "返回数据解析成功";
+            } else {
+                resultStatus.classList.add('bg-blue-900/20', 'border-blue-500/30');
+                resultStatus.classList.remove('bg-green-900/20', 'border-green-500/30');
+                successIcon.classList.add('text-blue-400');
+                successIcon.classList.remove('text-green-400');
+                statusTitle.classList.add('text-blue-400');
+                statusTitle.classList.remove('text-green-400');
+                statusTitle.textContent = "发送指令解析成功";
+            }
+            
+            successIcon.classList.remove('hidden');
+            errorIcon.classList.add('hidden');
+            
+            // 设置状态描述
+            if (result.type === "门锁控制器") {
+                const lockNumber = result.details.lockNumber.split(' ')[1].replace(/[()]/g, '');
+                const address = result.details.address.split(' ')[1].replace(/[()]/g, '');
+                
+                if (result.command.name === "开门操作") {
+                    statusDesc.textContent = `${address} ${lockNumber}${result.isResponse ? " 已开启" : " 开门指令"}`;
+                } else if (result.command.name === "查询锁状态") {
+                    if (result.isResponse) {
+                        const status = result.details.status.includes("已开启") ? "开启" : "关闭";
+                        statusDesc.textContent = `${address} ${lockNumber} 当前状态: ${status}`;
+                    } else {
+                        statusDesc.textContent = `查询 ${address} ${lockNumber} 状态`;
+                    }
+                }
+            } else if (result.type === "重力传感器") {
+                const address = result.details.address.split(' ')[1].replace(/[()]/g, '');
+                
+                if (result.command.name === "读传感器重量") {
+                    if (result.isResponse && result.details.weight) {
+                        statusDesc.textContent = `${address} 重量: ${result.details.weight}`;
+                    } else {
+                        statusDesc.textContent = `读取 ${address} 重量数据`;
+                    }
+                } else if (result.command.name === "去皮置零/校准") {
+                    if (result.isResponse) {
+                        statusDesc.textContent = `${address} ${result.details.success ? "校准成功" : "校准失败"}`;
+                    } else {
+                        statusDesc.textContent = `${address} 执行去皮置零/校准操作`;
+                    }
+                } else if (result.command.name === "设置鉴别率" || result.command.name === "读取鉴别率") {
+                    if (result.isResponse) {
+                        statusDesc.textContent = `${address} ${result.command.name}${result.details.success ? "成功" : "失败"}`;
+                        if (result.details.discriminationRate !== undefined) {
+                            statusDesc.textContent += `: ${result.details.discriminationRate}`;
+                        }
+                    } else {
+                        statusDesc.textContent = `${address} ${result.command.name}`;
+                        if (result.details.rate !== undefined) {
+                            statusDesc.textContent += `: ${result.details.rate}`;
+                        }
+                    }
+                }
+            }
+            
+            // 更新命令信息
+            commandType.textContent = result.type;
+            commandCode.textContent = result.command.code || "-";
+            commandName.textContent = result.command.name;
+            
+            // 清空并填充详细信息
+            commandDetails.innerHTML = "";
+
+            // 定义字段顺序
+            const fieldOrder = ['header', 'length', 'commandCode', 'address', 'returnCode', 'sequence', 'lockNumber'];
+            // 对于返回数据，在lockNumber后添加status
+            if (result.details.status) {
+                fieldOrder.push('status');
+            }
+            // LRC始终是最后一个字段
+            fieldOrder.push('lrc');
+
+            // 按照指定顺序显示字段
+            for (const field of fieldOrder) {
+                if (result.details[field]) {
+                    const row = document.createElement('div');
+                    row.className = 'contents';
+                    
+                    const keyEl = document.createElement('div');
+                    keyEl.className = 'text-gray-300';
+                    keyEl.textContent = formatFieldName(field);
+                    
+                    const valueEl = document.createElement('div');
+                    valueEl.className = 'font-mono';
+                    if (field.includes('command') || field.includes('Code')) {
+                        valueEl.className += ' text-purple-400';
+                    } else if (field === 'status' || field.includes('lock')) {
+                        valueEl.className += ' text-green-400';
+                    } else if (field.includes('address')) {
+                        valueEl.className += ' text-yellow-400';
+                    } else {
+                        valueEl.className += ' text-blue-400';
+                    }
+                    valueEl.textContent = result.details[field];
+                    
+                    row.appendChild(keyEl);
+                    row.appendChild(valueEl);
+                    commandDetails.appendChild(row);
+                }
+            }
+            
+            // 处理重量数据（如果有）
+            if (result.details.multipleResults && result.details.weights) {
+                weightSection.classList.remove('hidden');
+                
+                // 清空并填充重量详情
+                weightDetails.innerHTML = "";
+                
+                // 显示多个传感器的重量数据
+                result.details.weights.forEach((weightData, index) => {
+                    const sensorSection = document.createElement('div');
+                    sensorSection.className = 'mb-6 last:mb-0';
+                    
+                    // 传感器标题
+                    const title = document.createElement('div');
+                    title.className = 'flex justify-between items-center mb-2';
+                    title.innerHTML = `
+                        <h4 class="text-blue-400">${weightData.address}</h4>
+                        <span class="text-2xl font-mono text-green-400">${weightData.weight}</span>
+                    `;
+                    
+                    // 传感器详情
+                    const details = document.createElement('div');
+                    details.className = 'grid grid-cols-2 gap-2 text-sm';
+                    
+                    // 添加状态信息
+                    if (weightData.status) {
+                        const statusGrid = document.createElement('div');
+                        statusGrid.className = 'col-span-2 grid grid-cols-2 gap-2 bg-gray-800/20 p-2 rounded mt-2';
+                        
+                        Object.entries(weightData.status).forEach(([key, value]) => {
+                            const statusRow = document.createElement('div');
+                            statusRow.className = 'contents';
+                            
+                            const keyEl = document.createElement('div');
+                            keyEl.className = 'text-gray-300';
+                            keyEl.textContent = formatFieldName(key);
+                            
+                            const valueEl = document.createElement('div');
+                            valueEl.className = 'font-mono';
+                            if (value) {
+                                if (key === 'fault' || key === 'overflow' || key === 'zeroAbnormal') {
+                                    valueEl.className += ' text-red-400';
+                                } else if (key === 'stable' || key === 'zeroPosition') {
+                                    valueEl.className += ' text-green-400';
+                                } else {
+                                    valueEl.className += ' text-blue-400';
+                                }
+                            } else {
+                                valueEl.className += ' text-gray-500';
+                            }
+                            valueEl.textContent = value ? '是' : '否';
+                            
+                            statusRow.appendChild(keyEl);
+                            statusRow.appendChild(valueEl);
+                            statusGrid.appendChild(statusRow);
+                        });
+                        
+                        details.appendChild(statusGrid);
+                    }
+                    
+                    // 添加原始数据
+                    const rawDataGrid = document.createElement('div');
+                    rawDataGrid.className = 'col-span-2 grid grid-cols-2 gap-2 bg-gray-800/20 p-2 rounded mt-2';
+                    rawDataGrid.innerHTML = `
+                        <div class="text-gray-300">状态字节</div>
+                        <div class="font-mono text-blue-400">${weightData.statusByte}</div>
+                        <div class="text-gray-300">分度值</div>
+                        <div class="font-mono text-blue-400">${weightData.divisionValue}</div>
+                        <div class="text-gray-300">分度数</div>
+                        <div class="font-mono text-blue-400">${weightData.divisionCount}</div>
+                        <div class="text-gray-300">LRC校验</div>
+                        <div class="font-mono ${weightData.lrcStatus === '校验通过' ? 'text-green-400' : 'text-red-400'}">${weightData.lrcStatus}</div>
+                    `;
+                    
+                    details.appendChild(rawDataGrid);
+                    
+                    sensorSection.appendChild(title);
+                    sensorSection.appendChild(details);
+                    weightDetails.appendChild(sensorSection);
+                });
+                
+                // 隐藏单个重量显示
+                weightValue.parentElement.classList.add('hidden');
+            } else if (result.details.weight) {
+                weightSection.classList.remove('hidden');
+                weightValue.parentElement.classList.remove('hidden');
+                weightValue.textContent = result.details.weight.replace('kg', '');
+                
+                // 清空并填充重量详情
+                weightDetails.innerHTML = "";
+                if (result.details.rawWeight) {
+                    for (const [key, value] of Object.entries(result.details.rawWeight)) {
+                        const row = document.createElement('div');
+                        row.className = 'contents';
+                        
+                        const keyEl = document.createElement('div');
+                        keyEl.className = 'text-gray-300';
+                        keyEl.textContent = formatFieldName(key);
+                        
+                        const valueEl = document.createElement('div');
+                        valueEl.className = 'font-mono text-blue-400';
+                        valueEl.textContent = value;
+                        
+                        row.appendChild(keyEl);
+                        row.appendChild(valueEl);
+                        weightDetails.appendChild(row);
+                    }
+                }
+            } else {
+                weightSection.classList.add('hidden');
+            }
+            
+            // 处理传感器状态（如果有）
+            if (result.details.status && typeof result.details.status === 'object') {
+                sensorStatusSection.classList.remove('hidden');
+                
+                // 清空并填充传感器状态
+                sensorStatus.innerHTML = "";
+                for (const [key, value] of Object.entries(result.details.status)) {
+                    const row = document.createElement('div');
+                    row.className = 'contents';
+                    
+                    const keyEl = document.createElement('div');
+                    keyEl.className = 'text-gray-300';
+                    keyEl.textContent = formatFieldName(key);
+                    
+                    const valueEl = document.createElement('div');
+                    valueEl.className = 'font-mono';
+                    if (value) {
+                        if (key === 'fault' || key === 'overflow' || key === 'zeroAbnormal') {
+                            valueEl.className += ' text-red-400';
+                        } else if (key === 'stable' || key === 'zeroPosition') {
+                            valueEl.className += ' text-green-400';
+                        } else {
+                            valueEl.className += ' text-blue-400';
+                        }
+                    } else {
+                        valueEl.className += ' text-gray-500';
+                    }
+                    valueEl.textContent = value ? '是' : '否';
+                    
+                    row.appendChild(keyEl);
+                    row.appendChild(valueEl);
+                    sensorStatus.appendChild(row);
+                }
+            } else {
+                sensorStatusSection.classList.add('hidden');
+            }
+            
+            // 设置原始数据
+            rawData.textContent = JSON.stringify(result.rawBytes, null, 2);
+        }
+
+        // 显示错误信息
+        function showError(message) {
+            resultSection.classList.add('hidden');
+            errorSection.classList.remove('hidden');
+            errorMessage.textContent = message;
+        }
+
+        // 切换显示/隐藏原始数据
+        function toggleRawData() {
+            rawData.classList.toggle('hidden');
+        }
+
+        // 清空输入框
+        function clearInputField() {
+            commandInput.value = '';
+            // 同时清除解析结果
+            resultSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
+            loadingSection.classList.add('hidden');
+        }
+
+        // 格式化字段名称
+        function formatFieldName(key) {
+            return key
+                .replace(/([A-Z])/g, ' $1')
+                .replace(/^./, str => str.toUpperCase())
+                .replace(/lrc/i, 'LRC')
+                .replace(/x(\d+)/i, 'X$1');
+        }
+
+        // 显示loading状态
+        function showLoading() {
+            // 隐藏其他区域
+            resultSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
+            
+            // 显示loading区域
+            loadingSection.classList.remove('hidden');
+            
+            // 给解析按钮添加loading效果
+            parseButton.classList.add('btn-loading');
+            parseButton.disabled = true;
+        }
+
+        // 隐藏loading状态
+        function hideLoading() {
+            // 隐藏loading区域
+            loadingSection.classList.add('hidden');
+            
+            // 移除解析按钮的loading效果
+            parseButton.classList.remove('btn-loading');
+            parseButton.disabled = false;
+        }
     </script>
 </body>
 </html>
