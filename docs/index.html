@@ -158,7 +158,7 @@
                         <h3 class="text-sm text-gray-400 mb-3">重量数据解析</h3>
                         <div class="text-center my-4">
                             <span id="weight-value" class="text-4xl font-mono text-green-400">0.000</span>
-                            <span class="text-xl text-gray-400">kg</span>
+                            <span class="text-xl text-gray-400">克</span>
                         </div>
                         <div id="weight-details" class="grid grid-cols-2 gap-4 text-sm">
                             <!-- 动态生成的重量详情 -->
@@ -297,6 +297,10 @@
                 historyItem.type = result.type;
                 historyItem.commandName = result.command.name;
                 historyItem.isResponse = result.isResponse;
+                // 添加多传感器标志
+                if (result.details && result.details.multipleResults) {
+                    historyItem.isMultipleSensors = true;
+                }
             } else {
                 historyItem.errorMessage = result.message;
             }
@@ -312,6 +316,7 @@
                     commandHistory[existingIndex].type = result.type;
                     commandHistory[existingIndex].commandName = result.command.name;
                     commandHistory[existingIndex].isResponse = result.isResponse;
+                    commandHistory[existingIndex].isMultipleSensors = result.details && result.details.multipleResults;
                 } else {
                     commandHistory[existingIndex].errorMessage = result.message;
                 }
@@ -345,7 +350,7 @@
                         <div class="text-sm">
                             <span class="text-purple-400">${item.type}</span>
                             <span class="text-gray-400 mx-2">|</span>
-                            <span class="text-green-400">${item.commandName}</span>
+                            <span class="text-green-400">${item.isMultipleSensors ? '读多个传感器重量' : item.commandName}</span>
                             <span class="text-gray-400 mx-2">|</span>
                             <span class="text-yellow-400">${item.isResponse ? '返回数据' : '发送指令'}</span>
                         </div>
@@ -473,11 +478,100 @@
                     }
                 }
             } else if (result.type === "重力传感器") {
-                const address = result.details.address.split(' ')[1].replace(/[()]/g, '');
+                const address = result.details.address;
                 
                 if (result.command.name === "读传感器重量") {
-                    if (result.isResponse && result.details.weight) {
-                        statusDesc.textContent = `${address} 重量: ${result.details.weight}`;
+                    if (result.isResponse) {
+                        if (result.details.multipleResults && result.details.weights) {
+                            // 多个传感器数据显示
+                            statusDesc.textContent = `${result.details.weights.length}个传感器的重量数据`;
+                            
+                            // 显示多个传感器的数据
+                            weightSection.classList.remove('hidden');
+                            weightValue.parentElement.classList.add('hidden');
+                            weightDetails.innerHTML = "";
+                            
+                            // 创建传感器列表容器
+                            const sensorList = document.createElement('div');
+                            sensorList.className = 'space-y-4 w-full'; // 添加w-full确保占满宽度
+                            
+                            // 显示多个传感器的数据
+                            result.details.weights.forEach((weightData, index) => {
+                                const sensorSection = document.createElement('div');
+                                sensorSection.className = 'bg-gray-800/20 rounded-xl p-4 w-full';
+                                
+                                // 传感器标题和重量
+                                const header = document.createElement('div');
+                                header.className = 'mb-4';
+                                header.innerHTML = `
+                                    <div class="flex flex-col w-full">
+                                        <div class="flex items-center justify-between w-full">
+                                            <div class="text-blue-400 font-medium text-base whitespace-nowrap">
+                                                ${weightData.address}
+                                            </div>
+                                            <div class="text-2xl font-mono text-green-400 font-bold ml-4">
+                                                ${weightData.weight}
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center justify-between w-full">
+                                            <div class="text-blue-400 font-medium text-base whitespace-nowrap">
+                                                LRC校验订单:
+                                            </div>
+                                            <div class="text-xl font-mono ${weightData.lrcStatus === '校验通过' ? 'text-green-400' : 'text-red-400'} font-bold ml-4">
+                                                ${weightData.lrcStatus}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                                
+                                // 状态信息
+                                const statusGrid = document.createElement('div');
+                                statusGrid.className = 'space-y-3 w-full';
+                                
+                                // 传感器状态
+                                if (weightData.status) {
+                                    const statusSection = document.createElement('div');
+                                    statusSection.className = 'bg-gray-900/30 rounded-lg p-3 w-full';
+                                    
+                                    const statusTitle = document.createElement('div');
+                                    statusTitle.className = 'text-gray-400 text-sm mb-3';
+                                    statusTitle.textContent = '传感器状态';
+                                    statusSection.appendChild(statusTitle);
+                                    
+                                    const statusContent = document.createElement('div');
+                                    statusContent.className = 'grid grid-cols-2 gap-y-2 text-sm w-full';
+                                    
+                                    Object.entries(weightData.status).forEach(([key, value]) => {
+                                        const statusRow = document.createElement('div');
+                                        statusRow.className = 'contents';
+                                        statusRow.innerHTML = `
+                                            <div class="text-gray-300 flex-1 min-w-[120px]">${formatFieldName(key)}</div>
+                                            <div class="font-mono ${value ? 
+                                                (key === '故障' || key === '量程溢出' || key === '开机零位异常' ? 'text-red-400' : 
+                                                 key === '稳定' || key === '零位' ? 'text-green-400' : 'text-blue-400') 
+                                                : 'text-gray-500'} flex-1 text-right">${value ? '是' : '否'}</div>
+                                        `;
+                                        statusContent.appendChild(statusRow);
+                                    });
+                                    
+                                    statusSection.appendChild(statusContent);
+                                    statusGrid.appendChild(statusSection);
+                                }
+                                
+                                sensorSection.appendChild(header);
+                                sensorSection.appendChild(statusGrid);
+                                sensorList.appendChild(sensorSection);
+                            });
+                            
+                            weightDetails.className = 'w-full';
+                            weightDetails.appendChild(sensorList);
+                        } else {
+                            // 单个传感器数据显示（保持原有逻辑）
+                            statusDesc.textContent = `${address} 重量: ${result.details.weight}`;
+                            weightSection.classList.remove('hidden');
+                            weightValue.parentElement.classList.remove('hidden');
+                            weightValue.textContent = result.details.weight;
+                        }
                     } else {
                         statusDesc.textContent = `读取 ${address} 重量数据`;
                     }
@@ -551,90 +645,87 @@
             // 处理重量数据（如果有）
             if (result.details.multipleResults && result.details.weights) {
                 weightSection.classList.remove('hidden');
-                
-                // 清空并填充重量详情
+                weightValue.parentElement.classList.add('hidden');
                 weightDetails.innerHTML = "";
                 
-                // 显示多个传感器的重量数据
+                // 创建传感器列表容器
+                const sensorList = document.createElement('div');
+                sensorList.className = 'space-y-4 w-full'; // 添加w-full确保占满宽度
+                
+                // 显示多个传感器的数据
                 result.details.weights.forEach((weightData, index) => {
                     const sensorSection = document.createElement('div');
-                    sensorSection.className = 'mb-6 last:mb-0';
+                    sensorSection.className = 'bg-gray-800/20 rounded-xl p-4 w-full';
                     
-                    // 传感器标题
-                    const title = document.createElement('div');
-                    title.className = 'flex justify-between items-center mb-2';
-                    title.innerHTML = `
-                        <h4 class="text-blue-400">${weightData.address}</h4>
-                        <span class="text-2xl font-mono text-green-400">${weightData.weight}</span>
+                    // 传感器标题和重量
+                    const header = document.createElement('div');
+                    header.className = 'mb-4';
+                    header.innerHTML = `
+                    <div class="flex flex-col w-full">
+                        <div class="flex items-center justify-between w-full">
+                            <div class="text-blue-400 font-medium text-base whitespace-nowrap">
+                                ${weightData.address}
+                            </div>
+                            <div class="text-2xl font-mono text-green-400 font-bold ml-4">
+                                ${weightData.weight}
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between w-full">
+                            <div class="text-blue-400 font-medium text-base whitespace-nowrap">
+                                LRC校验:
+                            </div>
+                            <div class="text-xl font-mono ${weightData.lrcStatus === '校验通过' ? 'text-green-400' : 'text-red-400'} font-bold ml-4">
+                                ${weightData.lrcStatus}
+                            </div>
+                        </div>
+                    </div>
                     `;
                     
-                    // 传感器详情
-                    const details = document.createElement('div');
-                    details.className = 'grid grid-cols-2 gap-2 text-sm';
+                    // 状态信息
+                    const statusGrid = document.createElement('div');
+                    statusGrid.className = 'space-y-3 w-full';
                     
-                    // 添加状态信息
+                    // 传感器状态
                     if (weightData.status) {
-                        const statusGrid = document.createElement('div');
-                        statusGrid.className = 'col-span-2 grid grid-cols-2 gap-2 bg-gray-800/20 p-2 rounded mt-2';
+                        const statusSection = document.createElement('div');
+                        statusSection.className = 'bg-gray-900/30 rounded-lg p-3 w-full';
+                        
+                        const statusTitle = document.createElement('div');
+                        statusTitle.className = 'text-gray-400 text-sm mb-3';
+                        statusTitle.textContent = '传感器状态';
+                        statusSection.appendChild(statusTitle);
+                        
+                        const statusContent = document.createElement('div');
+                        statusContent.className = 'grid grid-cols-2 gap-y-2 text-sm w-full';
                         
                         Object.entries(weightData.status).forEach(([key, value]) => {
                             const statusRow = document.createElement('div');
                             statusRow.className = 'contents';
-                            
-                            const keyEl = document.createElement('div');
-                            keyEl.className = 'text-gray-300';
-                            keyEl.textContent = formatFieldName(key);
-                            
-                            const valueEl = document.createElement('div');
-                            valueEl.className = 'font-mono';
-                            if (value) {
-                                if (key === 'fault' || key === 'overflow' || key === 'zeroAbnormal') {
-                                    valueEl.className += ' text-red-400';
-                                } else if (key === 'stable' || key === 'zeroPosition') {
-                                    valueEl.className += ' text-green-400';
-                                } else {
-                                    valueEl.className += ' text-blue-400';
-                                }
-                            } else {
-                                valueEl.className += ' text-gray-500';
-                            }
-                            valueEl.textContent = value ? '是' : '否';
-                            
-                            statusRow.appendChild(keyEl);
-                            statusRow.appendChild(valueEl);
-                            statusGrid.appendChild(statusRow);
+                            statusRow.innerHTML = `
+                                <div class="text-gray-300 flex-1 min-w-[120px]">${formatFieldName(key)}</div>
+                                <div class="font-mono ${value ? 
+                                    (key === '故障' || key === '量程溢出' || key === '开机零位异常' ? 'text-red-400' : 
+                                     key === '稳定' || key === '零位' ? 'text-green-400' : 'text-blue-400') 
+                                    : 'text-gray-500'} flex-1 text-right">${value ? '是' : '否'}</div>
+                            `;
+                            statusContent.appendChild(statusRow);
                         });
                         
-                        details.appendChild(statusGrid);
+                        statusSection.appendChild(statusContent);
+                        statusGrid.appendChild(statusSection);
                     }
                     
-                    // 添加原始数据
-                    const rawDataGrid = document.createElement('div');
-                    rawDataGrid.className = 'col-span-2 grid grid-cols-2 gap-2 bg-gray-800/20 p-2 rounded mt-2';
-                    rawDataGrid.innerHTML = `
-                        <div class="text-gray-300">状态字节</div>
-                        <div class="font-mono text-blue-400">${weightData.statusByte}</div>
-                        <div class="text-gray-300">分度值</div>
-                        <div class="font-mono text-blue-400">${weightData.divisionValue}</div>
-                        <div class="text-gray-300">分度数</div>
-                        <div class="font-mono text-blue-400">${weightData.divisionCount}</div>
-                        <div class="text-gray-300">LRC校验</div>
-                        <div class="font-mono ${weightData.lrcStatus === '校验通过' ? 'text-green-400' : 'text-red-400'}">${weightData.lrcStatus}</div>
-                    `;
-                    
-                    details.appendChild(rawDataGrid);
-                    
-                    sensorSection.appendChild(title);
-                    sensorSection.appendChild(details);
-                    weightDetails.appendChild(sensorSection);
+                    sensorSection.appendChild(header);
+                    sensorSection.appendChild(statusGrid);
+                    sensorList.appendChild(sensorSection);
                 });
                 
-                // 隐藏单个重量显示
-                weightValue.parentElement.classList.add('hidden');
+                weightDetails.className = 'w-full';
+                weightDetails.appendChild(sensorList);
             } else if (result.details.weight) {
                 weightSection.classList.remove('hidden');
                 weightValue.parentElement.classList.remove('hidden');
-                weightValue.textContent = result.details.weight.replace('kg', '');
+                weightValue.textContent = result.details.weight;
                 
                 // 清空并填充重量详情
                 weightDetails.innerHTML = "";

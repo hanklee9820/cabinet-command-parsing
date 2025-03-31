@@ -27,13 +27,12 @@ class ProtocolParser {
     // 根据包头判断指令类型
     const header = bytes[0];
     
+    // 门锁控制器指令以0xF3开头
     if (header === 0xF3) {
       return this.parseDoorCommand(bytes);
-    } else if (header === 0xF3) {
-      return this.parseDoorCommand(bytes);
-    } else if (
-      // 重力传感器的第二个字节是功能码，用这个来判断
-      bytes.length >= 2 && 
+    } 
+    // 重力传感器指令的第一个字节是地址（0x00-0xFF），第二个字节是功能码
+    else if (bytes.length >= 2 && 
       (bytes[1] === 0x05 || // 读数据功能码
        bytes[1] === 0x06 || // 读数据返回功能码
        bytes[1] === 0x63 || // 写数据功能码
@@ -43,7 +42,7 @@ class ProtocolParser {
     } else {
       return { 
         success: false, 
-        message: "未知的指令类型，包头:" + header.toString(16) 
+        message: "未知的指令类型，包头: 0x" + header.toString(16).padStart(2, '0')
       };
     }
   }
@@ -143,7 +142,52 @@ class ProtocolParser {
     
     // 如果是返回数据（长度大于9且第二个字节是0x06）
     if (bytes.length >= 9 && bytes[1] === 0x06) {
-      // 按9字节分割数据
+      // 如果是单个返回数据
+      if (bytes.length === 9) {
+        const address = bytes[0];
+        const statusByte = bytes[3];
+        const x4Byte = bytes[4];
+        const x3x2x1 = (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
+        const receivedLRC = bytes[8];
+        const calculatedLRC = this.calculateWeightLRC(bytes.slice(0, -1));
+        
+        // 计算重量
+        const isPositive = (x4Byte & 0x80) === 0;
+        const divisionCode = x4Byte & 0x0F;
+        const divisionValue = this.getDivisionValue(divisionCode);
+        const divisionCount = x3x2x1;
+        const weight = divisionCount * divisionValue * (isPositive ? 1 : -1);
+        
+        // 解析状态字节
+        const statusInfo = this.parseStatusByte(statusByte);
+        
+        return {
+          success: true,
+          type: "重力传感器",
+          isResponse: true,
+          command: {
+            name: "读传感器重量"
+          },
+          details: {
+            address: "0x" + address.toString(16).padStart(2, '0') + ` (${address}号传感器)`,
+            weight: weight.toFixed(1),
+            lrcStatus: calculatedLRC === receivedLRC ? "校验通过" : "校验失败",
+            statusByte: "0x" + statusByte.toString(16).padStart(2, '0'),
+            x4Byte: "0x" + x4Byte.toString(16).padStart(2, '0'),
+            x3x2x1: "0x" + x3x2x1.toString(16).padStart(6, '0'),
+            divisionCode,
+            divisionValue,
+            divisionCount,
+            isPositive,
+            receivedLRC: "0x" + receivedLRC.toString(16).padStart(2, '0'),
+            calculatedLRC: "0x" + calculatedLRC.toString(16).padStart(2, '0'),
+            status: statusInfo
+          },
+          rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
+        };
+      }
+      
+      // 如果是多个返回数据
       const chunks = [];
       for (let i = 0; i < bytes.length; i += 9) {
         if (i + 9 <= bytes.length) {
@@ -153,8 +197,9 @@ class ProtocolParser {
       
       // 解析每个数据块
       const weightResults = chunks.map(chunk => {
+        console.log("解析重量指令的Chunk字节:", chunk.map(b => "0x" + b.toString(16).padStart(2, '0')));
         // 校验每个数据块的LRC
-        const calculatedLRC = this.calculateWeightLRC(chunk.slice(0, -1));
+        const calculatedLRC = this.calculateWeightLRC(chunk.slice(0, -1));  // 只排除最后一位LRC
         const receivedLRC = chunk[chunk.length - 1];
         
         const address = chunk[0];
@@ -173,20 +218,18 @@ class ProtocolParser {
         const statusInfo = this.parseStatusByte(statusByte);
         
         return {
-          address: address,
-          weight: weight.toFixed(3),
-          lrcValid: calculatedLRC === receivedLRC,
-          rawData: {
-            statusByte: "0x" + statusByte.toString(16).padStart(2, '0'),
-            x4Byte: "0x" + x4Byte.toString(16).padStart(2, '0'),
-            x3x2x1: "0x" + x3x2x1.toString(16).padStart(6, '0'),
-            divisionCode,
-            divisionValue,
-            divisionCount,
-            isPositive,
-            receivedLRC: "0x" + receivedLRC.toString(16).padStart(2, '0'),
-            calculatedLRC: "0x" + calculatedLRC.toString(16).padStart(2, '0')
-          },
+          address: "0x" + address.toString(16).padStart(2, '0') + ` (${address}号传感器)`,
+          weight: weight.toFixed(1) + "g",
+          lrcStatus: calculatedLRC === receivedLRC ? "校验通过" : "校验失败",
+          statusByte: "0x" + statusByte.toString(16).padStart(2, '0'),
+          x4Byte: "0x" + x4Byte.toString(16).padStart(2, '0'),
+          x3x2x1: "0x" + x3x2x1.toString(16).padStart(6, '0'),
+          divisionCode,
+          divisionValue,
+          divisionCount,
+          isPositive,
+          receivedLRC: "0x" + receivedLRC.toString(16).padStart(2, '0'),
+          calculatedLRC: "0x" + calculatedLRC.toString(16).padStart(2, '0'),
           status: statusInfo
         };
       });
@@ -200,13 +243,7 @@ class ProtocolParser {
         },
         details: {
           multipleResults: true,
-          weights: weightResults.map(r => ({
-            address: "0x" + r.address.toString(16).padStart(2, '0') + ` (${r.address}号传感器)`,
-            weight: r.weight + "kg",
-            lrcStatus: r.lrcValid ? "校验通过" : "校验失败",
-            ...r.rawData,
-            status: r.status
-          }))
+          weights: weightResults
         },
         rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
       };
@@ -214,10 +251,15 @@ class ProtocolParser {
     
     // 如果是发送指令
     // 校验LRC（使用字节级别校验）
-    const calculatedLRC = this.calculateWeightLRC(bytes.slice(0, -1));
+    const dataForLRC = bytes.slice(0, -1);  // 排除最后一位LRC
+    const calculatedLRC = this.calculateWeightLRC(dataForLRC);
     const receivedLRC = bytes[bytes.length - 1];
     
-    console.log(`重量校验结果: 计算值=0x${calculatedLRC.toString(16).padStart(2, '0')}, 接收值=0x${receivedLRC.toString(16).padStart(2, '0')}`);
+    console.log("重量指令LRC校验详情:");
+    console.log("- 原始数据:", bytes.map(b => "0x" + b.toString(16).padStart(2, '0')));
+    console.log("- 计算范围:", dataForLRC.map(b => "0x" + b.toString(16).padStart(2, '0')));
+    console.log(`- 计算结果: 0x${calculatedLRC.toString(16).padStart(2, '0')} (${calculatedLRC})`);
+    console.log(`- 接收的LRC: 0x${receivedLRC.toString(16).padStart(2, '0')} (${receivedLRC})`);
     
     if (calculatedLRC !== receivedLRC) {
       return {
@@ -310,19 +352,19 @@ class ProtocolParser {
    */
   getDivisionValue(code) {
     const divisionValues = {
-      0: 1,      // 1kg
-      1: 0.1,    // 0.1kg
-      2: 0.01,   // 0.01kg
-      3: 0.001,  // 0.001kg
-      4: 0.002,  // 0.002kg (文档示例中使用)
-      5: 0.005,  // 0.005kg
-      6: 0.2,    // 0.2kg
-      7: 0.5,    // 0.5kg
-      8: 0.05,   // 0.05kg
-      9: 0.0005  // 0.0005kg
+      0: 1000,    // 1kg = 1000g
+      1: 100,     // 0.1kg = 100g
+      2: 10,      // 0.01kg = 10g
+      3: 1,       // 0.001kg = 1g
+      4: 2,       // 0.002kg = 2g (文档示例中使用)
+      5: 5,       // 0.005kg = 5g
+      6: 200,     // 0.2kg = 200g
+      7: 500,     // 0.5kg = 500g
+      8: 50,      // 0.05kg = 50g
+      9: 0.5      // 0.0005kg = 0.5g
     };
     
-    return divisionValues[code] || 0.001; // 默认返回0.001kg
+    return divisionValues[code] || 1; // 默认返回1g
   }
   
   /**
@@ -330,14 +372,14 @@ class ProtocolParser {
    */
   parseStatusByte(statusByte) {
     return {
-      calibrationAllowed: (statusByte & 0x80) !== 0,  // bit7: 标定允许
-      fixed1: (statusByte & 0x40) !== 0,             // bit6: 固定值1
-      fixed0: (statusByte & 0x20) !== 0,             // bit5: 固定值0
-      fault: (statusByte & 0x10) !== 0,              // bit4: 故障
-      overflow: (statusByte & 0x08) !== 0,           // bit3: 量程溢出
-      zeroAbnormal: (statusByte & 0x04) !== 0,       // bit2: 开机零位异常
-      stable: (statusByte & 0x02) !== 0,             // bit1: 稳定
-      zeroPosition: (statusByte & 0x01) !== 0        // bit0: 零位
+      标定允许: (statusByte & 0x80) !== 0,  // bit7: 标定允许
+      固定值1: (statusByte & 0x40) !== 0,   // bit6: 固定值1
+      固定值0: (statusByte & 0x20) !== 0,   // bit5: 固定值0
+      故障: (statusByte & 0x10) !== 0,      // bit4: 故障
+      量程溢出: (statusByte & 0x08) !== 0,   // bit3: 量程溢出
+      开机零位异常: (statusByte & 0x04) !== 0, // bit2: 开机零位异常
+      稳定: (statusByte & 0x02) !== 0,      // bit1: 稳定
+      零位: (statusByte & 0x01) !== 0       // bit0: 零位
     };
   }
   
@@ -373,14 +415,14 @@ class ProtocolParser {
    * 确保加法运算在字节级别上正确执行
    */
   calculateWeightLRC(data) {
-    // 根据文档，重量指令使用相加运算，排除第一个字节
+    // 计算除了LRC校验码之外的所有字节（包括第一位）的和
     let sum = 0;
     
-    // 调试输出数据
-    console.log("计算重量LRC的输入数据(排除第一位):", data.slice(1).map(b => "0x" + b.toString(16).padStart(2, '0')));
+    // 调试输出数据（排除最后一位LRC）
+    console.log("计算重量LRC的输入数据(排除最后一位LRC):", data.map(b => "0x" + b.toString(16).padStart(2, '0')));
     
-    // 从索引1开始，排除第一位
-    for (let i = 1; i < data.length; i++) {
+    // 计算除了最后一位LRC之外的所有字节的和
+    for (let i = 0; i < data.length; i++) {
       const b = data[i];
       const oldSum = sum;
       // 加法后保留低8位
