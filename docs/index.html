@@ -263,7 +263,7 @@
             weightRead: "01 05 02 05 0C",
             weightResponse: "01 06 02 02 64 00 00 a7 36",
             weightCalibration: "00 63 06 01 6A",
-            discriminationRateSet: "01 63 2E 05 96"
+            discriminationRateSet: "01 63 2E 05 97"
         };
 
         // 初始化事件监听
@@ -297,7 +297,6 @@
                 historyItem.type = result.type;
                 historyItem.commandName = result.command.name;
                 historyItem.isResponse = result.isResponse;
-                // 添加多传感器标志
                 if (result.details && result.details.multipleResults) {
                     historyItem.isMultipleSensors = true;
                 }
@@ -308,20 +307,23 @@
             // 检查是否存在相同的指令
             const existingIndex = commandHistory.findIndex(item => item.command === command);
             if (existingIndex !== -1) {
-                // 更新现有记录的时间戳
-                commandHistory[existingIndex].timestamp = timestamp;
-                // 更新解析结果
-                commandHistory[existingIndex].success = result.success;
+                // 从数组中移除已存在的记录
+                const existingItem = commandHistory.splice(existingIndex, 1)[0];
+                // 更新时间戳和其他属性
+                existingItem.timestamp = timestamp;
+                existingItem.success = result.success;
                 if (result.success) {
-                    commandHistory[existingIndex].type = result.type;
-                    commandHistory[existingIndex].commandName = result.command.name;
-                    commandHistory[existingIndex].isResponse = result.isResponse;
-                    commandHistory[existingIndex].isMultipleSensors = result.details && result.details.multipleResults;
+                    existingItem.type = result.type;
+                    existingItem.commandName = result.command.name;
+                    existingItem.isResponse = result.isResponse;
+                    existingItem.isMultipleSensors = result.details && result.details.multipleResults;
                 } else {
-                    commandHistory[existingIndex].errorMessage = result.message;
+                    existingItem.errorMessage = result.message;
                 }
+                // 将更新后的记录添加到数组开头
+                commandHistory.unshift(existingItem);
             } else {
-                // 添加新记录
+                // 添加新记录到数组开头
                 commandHistory.unshift(historyItem);
             }
 

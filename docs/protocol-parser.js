@@ -281,6 +281,7 @@ class ProtocolParser {
     let commandType = "";
     let isResponse = false;
     let result = {};
+    let statusDesc = "";
     
     // 根据功能码判断指令类型
     if (functionCode === 0x05) {
@@ -290,14 +291,21 @@ class ProtocolParser {
         commandType = "读传感器重量";
       } else if (registerAddress === 0x2E) {
         commandType = "读取鉴别率";
-        
-        if (bytes.length >= 5 && bytes[1] === 0x06) {
-          isResponse = true;
-          const discriminationRate = bytes[3];
-          result = {
-            discriminationRate
-          };
-        }
+      }
+    } else if (functionCode === 0x06) {
+      // 读取操作的返回数据
+      const registerAddress = bytes[2];
+      if (registerAddress === 0x02) {
+        commandType = "读传感器重量";
+      } else if (registerAddress === 0x2E) {
+        commandType = "读取鉴别率";
+        isResponse = true;
+        const discriminationRate = bytes[3];
+        result = {
+          success: true,
+          discriminationRate: discriminationRate
+        };
+        statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) 当前鉴别率: ${discriminationRate}`;
       }
     } else if (functionCode === 0x63) {
       const command = bytes[2];
@@ -314,19 +322,30 @@ class ProtocolParser {
       } else if (command === 0x2E) {
         commandType = "设置鉴别率";
         const rate = bytes[3];
-        
-        if (bytes.length >= 5 && bytes[1] === 0x64) {
-          isResponse = true;
-          const success = bytes[3] === 0x05;
+        if (rate === 0) {
           result = {
-            success,
-            rate
+            rate,
+            rateDesc: "停止补偿跟踪"
           };
         } else {
           result = {
-            rate
+            rate,
+            rateDesc: `${rate}倍分度值`
           };
         }
+        statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) 设置鉴别率: ${rate === 0 ? "停止补偿跟踪" : rate + "倍分度值"}`;
+      }
+    } else if (functionCode === 0x64) {
+      // 写数据返回
+      const command = bytes[2];
+      if (command === 0x2E) {
+        commandType = "设置鉴别率";
+        isResponse = true;
+        const success = bytes[3] === 0x05;
+        result = {
+          success
+        };
+        statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) ${success ? "设置成功" : "设置失败"}`;
       }
     }
     
@@ -341,7 +360,8 @@ class ProtocolParser {
         address: "0x" + address.toString(16).padStart(2, '0') + ` (${address === 0 ? "全部地址" : address + "号传感器"})`,
         functionCode: "0x" + functionCode.toString(16).padStart(2, '0'),
         lrc: "0x" + receivedLRC.toString(16).padStart(2, '0') + " (LRC校验通过)",
-        ...result
+        ...result,
+        statusDesc
       },
       rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
     };
