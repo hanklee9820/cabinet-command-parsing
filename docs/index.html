@@ -193,7 +193,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                         </svg>
                         <div>
-                            <h3 class="font-medium text-red-400">解析失败</h3>
+                            <h3 id="error-title" class="font-medium text-red-400">解析失败</h3>
                             <p id="error-message" class="text-sm text-gray-400 mt-1"></p>
                         </div>
                     </div>
@@ -302,6 +302,14 @@
                 }
             } else {
                 historyItem.errorMessage = result.message;
+                // 添加类型和命令名称（如果有）
+                if (result.type) {
+                    historyItem.type = result.type;
+                }
+                if (result.command && result.command.name) {
+                    historyItem.commandName = result.command.name;
+                }
+                historyItem.isResponse = result.isResponse;
             }
 
             // 检查是否存在相同的指令
@@ -319,6 +327,12 @@
                     existingItem.isMultipleSensors = result.details && result.details.multipleResults;
                 } else {
                     existingItem.errorMessage = result.message;
+                    if (result.type) {
+                        existingItem.type = result.type;
+                    }
+                    if (result.command && result.command.name) {
+                        existingItem.commandName = result.command.name;
+                    }
                 }
                 // 将更新后的记录添加到数组开头
                 commandHistory.unshift(existingItem);
@@ -360,8 +374,12 @@
                 } else {
                     statusHtml = `
                         <div class="text-sm">
-                            <span class="text-red-400">解析失败</span>
+                            <span class="text-red-400">${item.isResponse ? '返回数据解析失败' : '发送指令解析失败'}</span>
                             <span class="text-gray-400 mx-2">|</span>
+                            ${item.type ? `<span class="text-purple-400">${item.type}</span>
+                            <span class="text-gray-400 mx-2">|</span>` : ''}
+                            ${item.commandName ? `<span class="text-green-400">${item.commandName}</span>
+                            <span class="text-gray-400 mx-2">|</span>` : ''}
                             <span class="text-red-400">${item.errorMessage}</span>
                         </div>
                     `;
@@ -385,7 +403,7 @@
                 // 为重新解析按钮添加点击事件
                 const reparseBtn = historyItem.querySelector('.reparse-btn');
                 reparseBtn.addEventListener('click', (e) => {
-                    e.stopPropagation(); // 防止触发父元素的点击事件
+                    e.stopPropagation();
                     commandInput.value = item.command;
                     parseCommand();
                 });
@@ -419,7 +437,7 @@
                     if (result.success) {
                         showResult(result);
                     } else {
-                        showError(result.message);
+                        showError(result.message, result.isResponse);
                     }
                     // 无论成功失败都添加到历史记录
                     addToHistory(input, result);
@@ -486,7 +504,12 @@
                     if (result.isResponse) {
                         if (result.details.multipleResults && result.details.weights) {
                             // 多个传感器数据显示
-                            statusDesc.textContent = `${result.details.weights.length}个传感器的重量数据`;
+                            if (result.message) {
+                                // 如果有校验失败的传感器，显示错误信息
+                                statusDesc.textContent = result.message;
+                            } else {
+                                statusDesc.textContent = `${result.details.weights.length}个传感器的重量数据`;
+                            }
                             
                             // 显示多个传感器的数据
                             weightSection.classList.remove('hidden');
@@ -795,9 +818,10 @@
         }
 
         // 显示错误信息
-        function showError(message) {
+        function showError(message, isResponse = false) {
             resultSection.classList.add('hidden');
             errorSection.classList.remove('hidden');
+            document.getElementById('error-title').textContent = isResponse ? "返回数据解析失败" : "发送指令解析失败";
             errorMessage.textContent = message;
         }
 
@@ -817,6 +841,23 @@
 
         // 格式化字段名称
         function formatFieldName(key) {
+            const fieldNameMap = {
+                'header': '包头',
+                'length': '长度',
+                'commandCode': '命令码',
+                'address': '地址编码',
+                'returnCode': '返回码',
+                'sequence': '序列号',
+                'lockNumber': '锁编号',
+                'lrc': 'LRC',
+                'status': '状态'
+            };
+            
+            // 如果有映射就使用映射，否则使用原来的格式化逻辑
+            if (fieldNameMap[key]) {
+                return fieldNameMap[key];
+            }
+            
             return key
                 .replace(/([A-Z])/g, ' $1')
                 .replace(/^./, str => str.toUpperCase())

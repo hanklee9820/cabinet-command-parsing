@@ -31,14 +31,30 @@ class ProtocolParser {
     if (header === 0xF3) {
       return this.parseDoorCommand(bytes);
     } 
-    // 重力传感器指令的第一个字节是地址（0x00-0xFF），第二个字节是功能码
-    else if (bytes.length >= 2 && 
-      (bytes[1] === 0x05 || // 读数据功能码
-       bytes[1] === 0x06 || // 读数据返回功能码
-       bytes[1] === 0x63 || // 写数据功能码
-       bytes[1] === 0x64)   // 写数据返回功能码
-    ) {
-      return this.parseWeightCommand(bytes);
+    // 重力传感器相关指令
+    else if (bytes.length >= 2) {
+      const functionCode = bytes[1];
+      const registerAddress = bytes[2];
+      
+      // 根据功能码和寄存器地址判断具体指令类型
+      if (functionCode === 0x05 || functionCode === 0x06) {
+        if (registerAddress === 0x02) {
+          return this.parseWeightCommand(bytes);
+        } else if (registerAddress === 0x2E) {
+          return this.parseDiscriminationRateCommand(bytes);
+        }
+      } else if (functionCode === 0x63 || functionCode === 0x64) {
+        if (bytes[2] === 0x06) {
+          return this.parseClearCommand(bytes);
+        } else if (bytes[2] === 0x2E) {
+          return this.parseDiscriminationRateCommand(bytes);
+        }
+      }
+      
+      return { 
+        success: false, 
+        message: "未知的指令类型，功能码: 0x" + functionCode.toString(16).padStart(2, '0')
+      };
     } else {
       return { 
         success: false, 
@@ -54,6 +70,21 @@ class ProtocolParser {
     // 打印输入的字节数组（16进制形式）
     console.log("解析门锁指令的原始字节:", bytes.map(b => "0x" + b.toString(16).padStart(2, '0')));
     
+    // 解析命令码（移到LRC校验前）
+    const commandCode = (bytes[3] << 8) | bytes[4];
+    let commandName = "";
+    
+    if (commandCode === 0x1111) {
+      commandName = "开门操作";
+    } else if (commandCode === 0x1110) {
+      commandName = "查询锁状态";
+    }
+
+    // 解析长度（移到LRC校验前）
+    const length = (bytes[1] << 8) | bytes[2];
+    // 判断是否为返回数据（通过长度判断）
+    const isResponse = length === 9;
+
     // 校验LRC（使用字节级别校验，排除第一位和校验位）
     // 传入整个数组，在calculateDoorLRC中会排除第一位
     const calculatedLRC = this.calculateDoorLRC(bytes.slice(0, -1));
@@ -64,25 +95,18 @@ class ProtocolParser {
     if (calculatedLRC !== receivedLRC) {
       return {
         success: false,
-        message: "LRC校验失败",
+        type: "门锁控制器",
+        isResponse,
+        command: {
+          code: "0x" + commandCode.toString(16).padStart(4, '0'),
+          name: commandName || "未知命令"
+        },
+        message: `[${commandName || "未知命令"}] ${isResponse ? '返回数据' : '发送指令'}解析失败 - LRC校验失败 (计算值: 0x${calculatedLRC.toString(16).padStart(2, '0')}, 接收值: 0x${receivedLRC.toString(16).padStart(2, '0')})`,
         details: {
-          calculated: calculatedLRC,
-          received: receivedLRC
+          address: "0x" + bytes[5].toString(16).padStart(2, '0') + ` (${bytes[5]}号柜)`,
+          lockNumber: "0x" + bytes[9].toString(16).padStart(2, '0') + ` (${bytes[9]}号锁)`
         }
       };
-    }
-    
-    // 解析长度
-    const length = (bytes[1] << 8) | bytes[2];
-    
-    // 解析命令码
-    const commandCode = (bytes[3] << 8) | bytes[4];
-    let commandName = "";
-    
-    if (commandCode === 0x1111) {
-      commandName = "开门操作";
-    } else if (commandCode === 0x1110) {
-      commandName = "查询锁状态";
     }
     
     // 解析地址编码
@@ -96,9 +120,6 @@ class ProtocolParser {
     
     // 解析锁编号
     const lockNumber = bytes[9];
-    
-    // 判断是否为返回数据（通过长度判断）
-    const isResponse = length === 9;
     
     // 创建基本详情对象
     const details = {
@@ -134,22 +155,57 @@ class ProtocolParser {
   }
   
   /**
-   * 解析重力传感器指令
+   * 解析重量指令
    */
   parseWeightCommand(bytes) {
     // 打印输入的字节数组（16进制形式）
     console.log("解析重量指令的原始字节:", bytes.map(b => "0x" + b.toString(16).padStart(2, '0')));
     
-    // 如果是返回数据（长度大于9且第二个字节是0x06）
-    if (bytes.length >= 9 && bytes[1] === 0x06) {
-      // 如果是单个返回数据
-      if (bytes.length === 9) {
-        const address = bytes[0];
-        const statusByte = bytes[3];
-        const x4Byte = bytes[4];
-        const x3x2x1 = (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
-        const receivedLRC = bytes[8];
-        const calculatedLRC = this.calculateWeightLRC(bytes.slice(0, -1));
+    // 解析地址和功能码
+    const address = bytes[0];
+    const functionCode = bytes[1];
+    const isResponse = functionCode === 0x06;
+    
+    // 如果是返回数据（第二个字节是0x06）
+    if (functionCode === 0x06) {
+      // 每个传感器数据块的长度是9字节
+      const dataBlockLength = 9;
+      const chunks = [];
+      
+      // 分割数据块
+      for (let i = 0; i < bytes.length; i += dataBlockLength) {
+        if (i + dataBlockLength <= bytes.length) {
+          chunks.push(bytes.slice(i, i + dataBlockLength));
+        }
+      }
+      
+      // 如果只有一个数据块
+      if (chunks.length === 1) {
+        const chunk = chunks[0];
+        
+        // 校验数据块的LRC
+        const chunkLRC = this.calculateWeightLRC(chunk.slice(0, -1));
+        const chunkReceivedLRC = chunk[chunk.length - 1];
+        
+        if (chunkLRC !== chunkReceivedLRC) {
+          return {
+            success: false,
+            type: "重力传感器",
+            isResponse: true,
+            command: {
+              name: "读传感器重量"
+            },
+            message: `[读传感器重量] 返回数据解析失败 - LRC校验失败 (计算值: 0x${chunkLRC.toString(16).padStart(2, '0')}, 接收值: 0x${chunkReceivedLRC.toString(16).padStart(2, '0')})`,
+            details: {
+              address: "0x" + chunk[0].toString(16).padStart(2, '0') + ` (${chunk[0]}号传感器)`,
+              functionCode: "0x" + chunk[1].toString(16).padStart(2, '0')
+            }
+          };
+        }
+        
+        const statusByte = chunk[3];
+        const x4Byte = chunk[4];
+        const x3x2x1 = (chunk[5] << 16) | (chunk[6] << 8) | chunk[7];
         
         // 计算重量
         const isPositive = (x4Byte & 0x80) === 0;
@@ -169,9 +225,9 @@ class ProtocolParser {
             name: "读传感器重量"
           },
           details: {
-            address: "0x" + address.toString(16).padStart(2, '0') + ` (${address}号传感器)`,
-            weight: weight.toFixed(1),
-            lrcStatus: calculatedLRC === receivedLRC ? "校验通过" : "校验失败",
+            address: "0x" + chunk[0].toString(16).padStart(2, '0') + ` (${chunk[0]}号传感器)`,
+            weight: weight.toFixed(3),
+            lrcStatus: "校验通过",
             statusByte: "0x" + statusByte.toString(16).padStart(2, '0'),
             x4Byte: "0x" + x4Byte.toString(16).padStart(2, '0'),
             x3x2x1: "0x" + x3x2x1.toString(16).padStart(6, '0'),
@@ -179,30 +235,21 @@ class ProtocolParser {
             divisionValue,
             divisionCount,
             isPositive,
-            receivedLRC: "0x" + receivedLRC.toString(16).padStart(2, '0'),
-            calculatedLRC: "0x" + calculatedLRC.toString(16).padStart(2, '0'),
             status: statusInfo
           },
-          rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
+          rawBytes: chunk.map(b => "0x" + b.toString(16).padStart(2, '0'))
         };
       }
       
-      // 如果是多个返回数据
-      const chunks = [];
-      for (let i = 0; i < bytes.length; i += 9) {
-        if (i + 9 <= bytes.length) {
-          chunks.push(bytes.slice(i, i + 9));
-        }
-      }
-      
-      // 解析每个数据块
+      // 如果有多个数据块
       const weightResults = chunks.map(chunk => {
         console.log("解析重量指令的Chunk字节:", chunk.map(b => "0x" + b.toString(16).padStart(2, '0')));
-        // 校验每个数据块的LRC
-        const calculatedLRC = this.calculateWeightLRC(chunk.slice(0, -1));  // 只排除最后一位LRC
-        const receivedLRC = chunk[chunk.length - 1];
         
-        const address = chunk[0];
+        // 校验数据块的LRC
+        const chunkLRC = this.calculateWeightLRC(chunk.slice(0, -1));
+        const chunkReceivedLRC = chunk[chunk.length - 1];
+        
+        const chunkAddress = chunk[0];
         const statusByte = chunk[3];
         const x4Byte = chunk[4];
         const x3x2x1 = (chunk[5] << 16) | (chunk[6] << 8) | chunk[7];
@@ -218,9 +265,14 @@ class ProtocolParser {
         const statusInfo = this.parseStatusByte(statusByte);
         
         return {
-          address: "0x" + address.toString(16).padStart(2, '0') + ` (${address}号传感器)`,
-          weight: weight.toFixed(1) + "g",
-          lrcStatus: calculatedLRC === receivedLRC ? "校验通过" : "校验失败",
+          address: chunkAddress,
+          addressText: "0x" + chunkAddress.toString(16).padStart(2, '0') + ` (${chunkAddress}号传感器)`,
+          weight: weight.toFixed(3) + "克",
+          lrcStatus: chunkLRC === chunkReceivedLRC ? "校验通过" : "校验失败",
+          lrcDetails: {
+            calculated: "0x" + chunkLRC.toString(16).padStart(2, '0'),
+            received: "0x" + chunkReceivedLRC.toString(16).padStart(2, '0')
+          },
           statusByte: "0x" + statusByte.toString(16).padStart(2, '0'),
           x4Byte: "0x" + x4Byte.toString(16).padStart(2, '0'),
           x3x2x1: "0x" + x3x2x1.toString(16).padStart(6, '0'),
@@ -228,140 +280,73 @@ class ProtocolParser {
           divisionValue,
           divisionCount,
           isPositive,
-          receivedLRC: "0x" + receivedLRC.toString(16).padStart(2, '0'),
-          calculatedLRC: "0x" + calculatedLRC.toString(16).padStart(2, '0'),
           status: statusInfo
         };
       });
       
+      // 检查是否有任何数据块的LRC校验失败
+      const failedSensors = weightResults.filter(result => result.lrcStatus === "校验失败");
+      const hasLRCError = failedSensors.length > 0;
+      
+      // 构建错误消息
+      let message = "";
+      if (hasLRCError) {
+        const failedSensorNumbers = failedSensors.map(sensor => sensor.address + "号").join("、");
+        message = `[读传感器重量] ${failedSensorNumbers}传感器返回数据校验失败`;
+      }
+      
       return {
-        success: true,
+        success: true, // 即使部分传感器校验失败，整体仍然返回成功
         type: "重力传感器",
         isResponse: true,
         command: {
           name: "读传感器重量"
         },
+        message: message, // 添加校验失败的传感器信息
         details: {
           multipleResults: true,
-          weights: weightResults
+          weights: weightResults.map(result => ({
+            ...result,
+            address: result.addressText, // 保持与之前的格式一致
+          })),
+          hasLRCError
         },
         rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
       };
     }
     
-    // 如果是发送指令
-    // 校验LRC（使用字节级别校验）
-    const dataForLRC = bytes.slice(0, -1);  // 排除最后一位LRC
+    // 如果是发送指令，校验整体LRC
+    const dataForLRC = bytes.slice(0, -1);
     const calculatedLRC = this.calculateWeightLRC(dataForLRC);
     const receivedLRC = bytes[bytes.length - 1];
-    
-    console.log("重量指令LRC校验详情:");
-    console.log("- 原始数据:", bytes.map(b => "0x" + b.toString(16).padStart(2, '0')));
-    console.log("- 计算范围:", dataForLRC.map(b => "0x" + b.toString(16).padStart(2, '0')));
-    console.log(`- 计算结果: 0x${calculatedLRC.toString(16).padStart(2, '0')} (${calculatedLRC})`);
-    console.log(`- 接收的LRC: 0x${receivedLRC.toString(16).padStart(2, '0')} (${receivedLRC})`);
     
     if (calculatedLRC !== receivedLRC) {
       return {
         success: false,
-        message: "LRC校验失败",
+        type: "重力传感器",
+        isResponse: false,
+        command: {
+          name: "读传感器重量"
+        },
+        message: `[读传感器重量] 发送指令解析失败 - LRC校验失败 (计算值: 0x${calculatedLRC.toString(16).padStart(2, '0')}, 接收值: 0x${receivedLRC.toString(16).padStart(2, '0')})`,
         details: {
-          calculated: calculatedLRC,
-          received: receivedLRC
+          address: "0x" + address.toString(16).padStart(2, '0') + ` (${address === 0 ? "全部地址" : address + "号传感器"})`,
+          functionCode: "0x" + functionCode.toString(16).padStart(2, '0')
         }
       };
-    }
-    
-    // 解析地址
-    const address = bytes[0];
-    
-    // 解析功能码
-    const functionCode = bytes[1];
-    
-    let commandType = "";
-    let isResponse = false;
-    let result = {};
-    let statusDesc = "";
-    
-    // 根据功能码判断指令类型
-    if (functionCode === 0x05) {
-      // 读取操作
-      const registerAddress = bytes[2];
-      if (registerAddress === 0x02) {
-        commandType = "读传感器重量";
-      } else if (registerAddress === 0x2E) {
-        commandType = "读取鉴别率";
-      }
-    } else if (functionCode === 0x06) {
-      // 读取操作的返回数据
-      const registerAddress = bytes[2];
-      if (registerAddress === 0x02) {
-        commandType = "读传感器重量";
-      } else if (registerAddress === 0x2E) {
-        commandType = "读取鉴别率";
-        isResponse = true;
-        const discriminationRate = bytes[3];
-        result = {
-          success: true,
-          discriminationRate: discriminationRate
-        };
-        statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) 当前鉴别率: ${discriminationRate}`;
-      }
-    } else if (functionCode === 0x63) {
-      const command = bytes[2];
-      if (command === 0x06) {
-        commandType = "去皮置零/校准";
-        
-        if (bytes.length >= 5 && bytes[1] === 0x64) {
-          isResponse = true;
-          const success = bytes[3] === 0x05;
-          result = {
-            success
-          };
-        }
-      } else if (command === 0x2E) {
-        commandType = "设置鉴别率";
-        const rate = bytes[3];
-        if (rate === 0) {
-          result = {
-            rate,
-            rateDesc: "停止补偿跟踪"
-          };
-        } else {
-          result = {
-            rate,
-            rateDesc: `${rate}倍分度值`
-          };
-        }
-        statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) 设置鉴别率: ${rate === 0 ? "停止补偿跟踪" : rate + "倍分度值"}`;
-      }
-    } else if (functionCode === 0x64) {
-      // 写数据返回
-      const command = bytes[2];
-      if (command === 0x2E) {
-        commandType = "设置鉴别率";
-        isResponse = true;
-        const success = bytes[3] === 0x05;
-        result = {
-          success
-        };
-        statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) ${success ? "设置成功" : "设置失败"}`;
-      }
     }
     
     return {
       success: true,
       type: "重力传感器",
-      isResponse,
+      isResponse: false,
       command: {
-        name: commandType
+        name: "读传感器重量"
       },
       details: {
         address: "0x" + address.toString(16).padStart(2, '0') + ` (${address === 0 ? "全部地址" : address + "号传感器"})`,
         functionCode: "0x" + functionCode.toString(16).padStart(2, '0'),
-        lrc: "0x" + receivedLRC.toString(16).padStart(2, '0') + " (LRC校验通过)",
-        ...result,
-        statusDesc
+        lrc: "0x" + receivedLRC.toString(16).padStart(2, '0') + " (LRC校验通过)"
       },
       rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
     };
@@ -453,6 +438,138 @@ class ProtocolParser {
     console.log("计算得到的重量LRC: 0x" + sum.toString(16).padStart(2, '0'));
     // 取低8位
     return sum;
+  }
+
+  /**
+   * 解析去皮置零/校准指令
+   */
+  parseClearCommand(bytes) {
+    // 解析地址和功能码
+    const address = bytes[0];
+    const functionCode = bytes[1];
+    const command = bytes[2];
+    const isResponse = functionCode === 0x64;
+    
+    // 校验LRC
+    const dataForLRC = bytes.slice(0, -1);
+    const calculatedLRC = this.calculateWeightLRC(dataForLRC);
+    const receivedLRC = bytes[bytes.length - 1];
+    
+    if (calculatedLRC !== receivedLRC) {
+        return {
+            success: false,
+            type: "重力传感器",
+            isResponse,
+            command: {
+                name: "去皮置零/校准"
+            },
+            message: `[去皮置零/校准] ${isResponse ? '返回数据' : '发送指令'}解析失败 - LRC校验失败 (计算值: 0x${calculatedLRC.toString(16).padStart(2, '0')}, 接收值: 0x${receivedLRC.toString(16).padStart(2, '0')})`,
+            details: {
+                address: "0x" + address.toString(16).padStart(2, '0') + ` (${address === 0 ? "全部地址" : address + "号传感器"})`,
+                functionCode: "0x" + functionCode.toString(16).padStart(2, '0')
+            }
+        };
+    }
+    
+    let result = {};
+    if (isResponse) {
+        const success = bytes[3] === 0x05;
+        result = { success };
+    }
+    
+    return {
+        success: true,
+        type: "重力传感器",
+        isResponse,
+        command: {
+            name: "去皮置零/校准"
+        },
+        details: {
+            address: "0x" + address.toString(16).padStart(2, '0') + ` (${address === 0 ? "全部地址" : address + "号传感器"})`,
+            functionCode: "0x" + functionCode.toString(16).padStart(2, '0'),
+            lrc: "0x" + receivedLRC.toString(16).padStart(2, '0') + " (LRC校验通过)",
+            ...result
+        },
+        rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
+    };
+  }
+
+  /**
+   * 解析鉴别率相关指令
+   */
+  parseDiscriminationRateCommand(bytes) {
+    // 解析地址和功能码
+    const address = bytes[0];
+    const functionCode = bytes[1];
+    const command = bytes[2];
+    const isResponse = functionCode === 0x06 || functionCode === 0x64;
+    const isRead = functionCode === 0x05 || functionCode === 0x06;
+    const commandName = isRead ? "读取鉴别率" : "设置鉴别率";
+    
+    // 校验LRC
+    const dataForLRC = bytes.slice(0, -1);
+    const calculatedLRC = this.calculateWeightLRC(dataForLRC);
+    const receivedLRC = bytes[bytes.length - 1];
+    
+    if (calculatedLRC !== receivedLRC) {
+        return {
+            success: false,
+            type: "重力传感器",
+            isResponse,
+            command: {
+                name: commandName
+            },
+            message: `[${commandName}] ${isResponse ? '返回数据' : '发送指令'}解析失败 - LRC校验失败 (计算值: 0x${calculatedLRC.toString(16).padStart(2, '0')}, 接收值: 0x${receivedLRC.toString(16).padStart(2, '0')})`,
+            details: {
+                address: "0x" + address.toString(16).padStart(2, '0') + ` (${address === 0 ? "全部地址" : address + "号传感器"})`,
+                functionCode: "0x" + functionCode.toString(16).padStart(2, '0')
+            }
+        };
+    }
+    
+    let result = {};
+    let statusDesc = "";
+    
+    if (isRead) {
+        if (isResponse) {
+            const discriminationRate = bytes[3];
+            result = {
+                success: true,
+                discriminationRate
+            };
+            statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) 当前鉴别率: ${discriminationRate}`;
+        }
+    } else {
+        if (isResponse) {
+            const success = bytes[3] === 0x05;
+            result = { success };
+            statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) ${success ? "设置成功" : "设置失败"}`;
+        } else {
+            const rate = bytes[3];
+            result = {
+                rate,
+                rateDesc: rate === 0 ? "停止补偿跟踪" : `${rate}倍分度值`
+            };
+            statusDesc = `0x${address.toString(16).padStart(2, '0')} (${address}号传感器) 设置鉴别率: ${rate === 0 ? "停止补偿跟踪" : rate + "倍分度值"}`;
+        }
+    }
+    
+    return {
+        success: true,
+        type: "重力传感器",
+        isResponse,
+        command: {
+            name: commandName
+        },
+        details: {
+            address: "0x" + address.toString(16).padStart(2, '0') + ` (${address === 0 ? "全部地址" : address + "号传感器"})`,
+            functionCode: "0x" + functionCode.toString(16).padStart(2, '0'),
+            lrc: "0x" + receivedLRC.toString(16).padStart(2, '0') + " (LRC校验通过)",
+            ...result,
+            statusDesc
+        },
+        rawBytes: bytes.map(b => "0x" + b.toString(16).padStart(2, '0'))
+    };
   }
 }
 
